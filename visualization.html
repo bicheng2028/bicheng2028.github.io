@@ -1,0 +1,865 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Integrator Neuron vs Transformer Attention — Live Visualization</title>
+<style>
+  :root{
+    --bg: #07090f;
+    --bg2:#0d1220;
+    --panel:#0f1524;
+    --panel2:#121a2e;
+    --ink:#e6eefc;
+    --dim:#8a97b3;
+    --line:#1f2a44;
+    --accentA:#4cc9ff;   /* feature A */
+    --accentB:#ff6ad5;   /* feature B */
+    --accentV:#7cf2b3;   /* V input */
+    --vote:#ffd166;      /* dendritic vote */
+    --soma:#a78bfa;      /* soma */
+    --spike:#ffffff;
+    --danger:#ff5a7a;
+    --ok:#4cc9a1;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:radial-gradient(1200px 800px at 20% -10%, #14203a 0%, var(--bg) 55%) fixed;color:var(--ink);font-family:ui-sans-serif,-apple-system,Segoe UI,Inter,Roboto,sans-serif;-webkit-font-smoothing:antialiased;}
+  a{color:var(--accentA)}
+  header{padding:22px 28px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap}
+  header h1{font-size:18px;margin:0;letter-spacing:.3px}
+  header h1 small{color:var(--dim);font-weight:400;margin-left:8px}
+  .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .btn{background:var(--panel);border:1px solid var(--line);color:var(--ink);padding:8px 12px;border-radius:10px;font-size:13px;cursor:pointer;transition:all .15s ease}
+  .btn:hover{border-color:#35446b;transform:translateY(-1px)}
+  .btn.primary{background:linear-gradient(180deg,#224a86,#17325d);border-color:#2f64b0}
+  .btn.toggle[aria-pressed="true"]{background:linear-gradient(180deg,#2a6f4f,#174a33);border-color:#2f9b6c}
+  .chip{font-size:12px;color:var(--dim);padding:4px 8px;border:1px dashed var(--line);border-radius:999px}
+  .wrap{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:18px}
+  @media (max-width: 1100px){ .wrap{grid-template-columns:1fr} }
+  .panel{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:16px;padding:16px 16px 10px;position:relative;overflow:hidden}
+  .panel h2{font-size:14px;margin:2px 0 10px;color:#cfe1ff;letter-spacing:.3px;display:flex;align-items:center;gap:8px}
+  .panel h2 .dot{width:8px;height:8px;border-radius:50%;background:var(--accentA);box-shadow:0 0 10px var(--accentA)}
+  .panel.right h2 .dot{background:var(--accentB);box-shadow:0 0 10px var(--accentB)}
+  .panel p.sub{color:var(--dim);font-size:12.5px;margin:0 0 10px}
+  .stage{position:relative;width:100%;aspect-ratio: 16/10;background:radial-gradient(600px 300px at 50% 110%, #132046 0%, transparent 60%), #0a1120;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  svg{width:100%;height:100%;display:block}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--dim)}
+  .legend .k{display:flex;gap:6px;align-items:center}
+  .legend .sw{width:10px;height:10px;border-radius:3px;box-shadow:0 0 10px currentColor}
+  .meter{height:6px;border-radius:99px;background:#0b1226;overflow:hidden;border:1px solid var(--line)}
+  .meter > div{height:100%;background:linear-gradient(90deg,#3b82f6,#a78bfa,#ff6ad5);width:0%}
+  .grid2{display:grid;grid-template-columns: 1fr 1fr;gap:10px;margin-top:10px}
+  .stat{background:#0b1226;border:1px solid var(--line);border-radius:10px;padding:10px}
+  .stat b{display:block;color:#cfe1ff;font-size:12px;margin-bottom:4px}
+  .stat span{font-size:18px;color:#fff;font-variant-numeric:tabular-nums}
+  .tag{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;background:#142041;border:1px solid #203463;color:#b8cbff}
+  .tag.ok{background:#0e2a20;border-color:#1f5a44;color:#9cf2cc}
+  .tag.no{background:#2a1016;border-color:#5a1f2e;color:#ffb6c4}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+  /* Transformer matrix */
+  .mat{display:grid;gap:6px}
+  .mat.q{grid-template-columns: repeat(4, 1fr)}
+  .cell{background:#0b1226;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:12px;text-align:center;color:#cfe1ff;transition:all .25s ease;position:relative}
+  .cell.hot{background:linear-gradient(180deg,#2d3bff55,#ff6ad555);border-color:#8894ff;box-shadow:0 0 14px #6b7bff55}
+  .bar{height:10px;border-radius:4px;background:#0b1226;border:1px solid var(--line);overflow:hidden}
+  .bar > div{height:100%;background:linear-gradient(90deg,#4cc9ff,#ff6ad5);width:0;transition:width .35s ease}
+  .bar.v > div{background:linear-gradient(90deg,#7cf2b3,#4cc9ff)}
+  .tok{display:grid;grid-template-columns: 80px 1fr 56px;gap:10px;align-items:center;margin:6px 0}
+  .tok .name{color:#cfe1ff;font-size:12px}
+  .tok .num{color:var(--dim);font-size:12px;text-align:right;font-variant-numeric:tabular-nums}
+  .divider{height:1px;background:linear-gradient(90deg,transparent,#2a3a66,transparent);margin:8px 0}
+
+  .footer{padding:16px 24px 40px;color:var(--dim);font-size:12.5px}
+  details{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:10px 24px}
+  details > summary{cursor:pointer;color:#cfe1ff}
+  table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12.5px}
+  table th, table td{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  table th{color:#cfe1ff;font-weight:600}
+  kbd{background:#0b1226;border:1px solid var(--line);border-bottom-width:2px;padding:1px 6px;border-radius:6px;font-size:11px;color:#cfe1ff}
+
+  /* Spike glow */
+  .glow-a{filter:drop-shadow(0 0 6px var(--accentA))}
+  .glow-b{filter:drop-shadow(0 0 6px var(--accentB))}
+  .glow-v{filter:drop-shadow(0 0 6px var(--accentV))}
+  .glow-s{filter:drop-shadow(0 0 10px var(--spike))}
+
+  .pulse{animation:pulse 1.2s infinite ease-in-out}
+  @keyframes pulse{ 0%,100%{opacity:.5} 50%{opacity:1} }
+  .clock{position:absolute;top:10px;right:12px;background:#0a1020cc;border:1px solid var(--line);border-radius:8px;padding:4px 8px;font-size:12px;color:#cfe1ff;backdrop-filter: blur(6px)}
+  .hint{position:absolute;left:12px;top:10px;background:#0a1020cc;border:1px solid var(--line);border-radius:8px;padding:4px 8px;font-size:12px;color:#cfe1ff;backdrop-filter: blur(6px)}
+  .label{fill:#a6b4d8;font-size:11px;font-family:inherit}
+  .label.strong{fill:#dfe8ff}
+  .axon{stroke:#27375f;stroke-width:2;fill:none}
+  .axonGhost{stroke:#18243f;stroke-width:2;fill:none;stroke-dasharray:3 4}
+  .delayBox{fill:#0b1226;stroke:#334773;rx:6;ry:6}
+  .branch{stroke:#334773;stroke-width:2;fill:none}
+  .branchActive{stroke:var(--vote);stroke-width:3;fill:none;filter:drop-shadow(0 0 10px var(--vote))}
+
+  /* select styling */
+  select{background:var(--panel);border:1px solid var(--line);color:var(--ink);padding:7px 10px;border-radius:10px}
+  input[type="range"]{accent-color:#6b7bff}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Integrator Neuron <small>vs Transformer Cross-Attention — live side-by-side</small></h1>
+  </div>
+  <div class="controls">
+    <span class="chip">Sequence</span>
+    <select id="seq">
+      <option value="AB">Q: A → B (valid, delay-aligned)</option>
+      <option value="BA">Q: B → A (wrong order)</option>
+      <option value="AA">Q: A only</option>
+      <option value="AB2">Q: A → B (late, out of window)</option>
+    </select>
+    <span class="chip">Speed</span>
+    <input id="speed" type="range" min="0.25" max="3" step="0.25" value="1" />
+    <button id="play" class="btn primary">▶ Play</button>
+    <button id="step" class="btn">Step</button>
+    <button id="reset" class="btn">Reset</button>
+    <button id="loop" class="btn toggle" aria-pressed="true">Loop</button>
+  </div>
+</header>
+
+<section class="wrap">
+  <!-- Biological integrator neuron -->
+  <div class="panel">
+    <h2><span class="dot"></span>Biological integrator neuron — delayed coincidence</h2>
+    <p class="sub">Spike trains arrive from feature neurons A and B. Axons impose <b>conduction delays (K)</b>. A distal dendrite votes <b>binary</b> only when delayed spikes <b>coincide</b> over a hard threshold. Proximal <b>V</b> adds weighted drive. The soma does <b>leaky integrate-and-fire</b>.</p>
+    <div class="stage">
+      <div class="clock" id="clockBio">t = 0</div>
+      <div class="hint">Watch the two colored spikes race down axons; delays line them up at the dendrite.</div>
+      <svg id="bio" viewBox="0 0 900 560" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <radialGradient id="spikeA" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="35%" stop-color="#4cc9ff"/>
+            <stop offset="100%" stop-color="#4cc9ff00"/>
+          </radialGradient>
+          <radialGradient id="spikeB" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="35%" stop-color="#ff6ad5"/>
+            <stop offset="100%" stop-color="#ff6ad500"/>
+          </radialGradient>
+          <radialGradient id="spikeV" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="35%" stop-color="#7cf2b3"/>
+            <stop offset="100%" stop-color="#7cf2b300"/>
+          </radialGradient>
+          <radialGradient id="spikeOut" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="40%" stop-color="#ffffff"/>
+            <stop offset="100%" stop-color="#ffffff00"/>
+          </radialGradient>
+          <linearGradient id="membraneFill" x1="0" x2="0" y1="1" y2="0">
+            <stop offset="0%" stop-color="#3b82f6"/>
+            <stop offset="50%" stop-color="#a78bfa"/>
+            <stop offset="100%" stop-color="#ff6ad5"/>
+          </linearGradient>
+        </defs>
+
+        <!-- Feature neuron A -->
+        <g id="neuronA">
+          <circle cx="70" cy="150" r="26" fill="#0b1226" stroke="var(--accentA)" stroke-width="2" class="glow-a"/>
+          <text class="label strong" x="70" y="155" text-anchor="middle">A</text>
+          <text class="label" x="70" y="195" text-anchor="middle">feature neuron</text>
+        </g>
+        <!-- Feature neuron B -->
+        <g id="neuronB">
+          <circle cx="70" cy="340" r="26" fill="#0b1226" stroke="var(--accentB)" stroke-width="2" class="glow-b"/>
+          <text class="label strong" x="70" y="345" text-anchor="middle">B</text>
+          <text class="label" x="70" y="385" text-anchor="middle">feature neuron</text>
+        </g>
+
+        <!-- Axons + delay boxes -->
+        <!-- A axon -->
+        <path class="axon" d="M100,150 C200,150 240,210 340,210" />
+        <rect id="delayA" class="delayBox" x="220" y="190" width="90" height="40"/>
+        <text class="label strong" x="265" y="208" text-anchor="middle">delay Δ_A</text>
+        <text class="label" id="delayAVal" x="265" y="223" text-anchor="middle">5</text>
+
+        <!-- B axon -->
+        <path class="axon" d="M100,340 C200,340 240,280 340,280" />
+        <rect id="delayB" class="delayBox" x="220" y="260" width="90" height="40"/>
+        <text class="label strong" x="265" y="278" text-anchor="middle">delay Δ_B</text>
+        <text class="label" id="delayBVal" x="265" y="293" text-anchor="middle">0</text>
+
+        <!-- Dendritic branch junction -->
+        <g id="dendrite">
+          <circle cx="400" cy="245" r="20" fill="#0b1226" stroke="#334773" stroke-width="2" id="branchCircle"/>
+          <text class="label strong" x="400" y="249" text-anchor="middle">Σ</text>
+          <text class="label" x="400" y="295" text-anchor="middle">distal dendrite</text>
+          <text class="label" x="400" y="310" text-anchor="middle">(coincidence detector)</text>
+        </g>
+
+        <!-- threshold indicator -->
+        <g transform="translate(460,200)">
+          <rect x="0" y="0" width="10" height="90" rx="4" fill="#0b1226" stroke="#334773"/>
+          <rect id="dendSum" x="1" y="89" width="8" height="0" fill="url(#membraneFill)"/>
+          <line id="thrLine" x1="-4" x2="14" y1="35" y2="35" stroke="var(--vote)" stroke-dasharray="3 3"/>
+          <text class="label" x="18" y="38">threshold</text>
+          <text class="label" x="18" y="92">coincident sum</text>
+        </g>
+
+        <!-- vote to soma line -->
+        <path class="branch" d="M490,245 C560,245 580,260 620,280"/>
+
+        <!-- Soma -->
+        <g id="soma">
+          <circle cx="680" cy="300" r="48" fill="#0b1226" stroke="var(--soma)" stroke-width="2.5" filter="url(#glowS)"/>
+          <text class="label strong" x="680" y="295" text-anchor="middle">soma</text>
+          <text class="label" x="680" y="310" text-anchor="middle">leaky I&amp;F</text>
+          <!-- membrane bar -->
+          <rect x="738" y="250" width="14" height="120" rx="6" fill="#0b1226" stroke="#334773"/>
+          <rect id="membraneBar" x="740" y="370" width="10" height="0" fill="url(#membraneFill)"/>
+          <line id="spikeThr" x1="734" x2="756" y1="262" y2="262" stroke="#ffd166" stroke-dasharray="3 3"/>
+          <text class="label" x="762" y="266">V_th</text>
+          <text class="label" x="762" y="370">V_rest</text>
+        </g>
+
+        <!-- Output axon -->
+        <path id="outAxon" class="axon" d="M728,300 C800,300 840,300 880,300"/>
+        <text class="label strong" x="860" y="290">output spike</text>
+
+        <!-- Proximal V input from bottom -->
+        <g id="Vgroup">
+          <rect x="620" y="460" width="120" height="40" rx="8" fill="#0b1226" stroke="var(--accentV)" class="glow-v"/>
+          <text class="label strong" x="680" y="478" text-anchor="middle">proximal V</text>
+          <text class="label" x="680" y="492" text-anchor="middle">weighted sum</text>
+          <path class="axon" d="M680,460 C680,420 680,400 680,352"/>
+        </g>
+
+        <!-- dendritic vote indicator -->
+        <g id="voteBadge" transform="translate(500,165)" opacity="0">
+          <rect x="0" y="0" width="110" height="28" rx="8" fill="#2a1f00" stroke="var(--vote)"/>
+          <text class="label strong" x="55" y="19" text-anchor="middle" fill="#ffd166">DENDRITIC VOTE</text>
+        </g>
+
+        <!-- Output spike badge -->
+        <g id="outBadge" transform="translate(790,230)" opacity="0">
+          <rect x="0" y="0" width="90" height="26" rx="8" fill="#0b1226" stroke="#fff"/>
+          <text class="label strong" x="45" y="18" text-anchor="middle" fill="#fff">SPIKE!</text>
+        </g>
+
+        <!-- Moving spikes -->
+        <circle id="spA" r="9" fill="url(#spikeA)" class="glow-a" opacity="0"/>
+        <circle id="spB" r="9" fill="url(#spikeB)" class="glow-b" opacity="0"/>
+        <circle id="spV" r="7" fill="url(#spikeV)" class="glow-v" opacity="0"/>
+        <circle id="spOut" r="10" fill="url(#spikeOut)" class="glow-s" opacity="0"/>
+      </svg>
+    </div>
+    <div class="legend">
+      <div class="k"><span class="sw" style="color:var(--accentA);background:var(--accentA)"></span>Q spike from A</div>
+      <div class="k"><span class="sw" style="color:var(--accentB);background:var(--accentB)"></span>Q spike from B</div>
+      <div class="k"><span class="sw" style="color:var(--accentV);background:var(--accentV)"></span>Proximal V</div>
+      <div class="k"><span class="sw" style="color:var(--vote);background:var(--vote)"></span>Dendritic vote</div>
+      <div class="k"><span class="sw" style="color:var(--spike);background:var(--spike)"></span>Output spike</div>
+    </div>
+    <div class="grid2">
+      <div class="stat"><b>Dendritic sum vs threshold</b><span id="statSum">0.00 / 1.50</span><div class="meter" style="margin-top:6px"><div id="mSum"></div></div></div>
+      <div class="stat"><b>Membrane potential</b><span id="statMem">0.000</span><div class="meter" style="margin-top:6px"><div id="mMem"></div></div></div>
+      <div class="stat"><b>Vote</b><span id="statVote">—</span></div>
+      <div class="stat"><b>Output spikes</b><span id="statSpikes">0</span></div>
+    </div>
+  </div>
+
+  <!-- Transformer cross-attention -->
+  <div class="panel right">
+    <h2><span class="dot"></span>Transformer cross-attention — softmax over all keys</h2>
+    <p class="sub">Same Q / K / V labels, different math. Dot products score every key; softmax gives <b>continuous</b> weights; the output is a <b>weighted blend of all V</b>, in <b>one step</b>, with no time.</p>
+    <div class="stage" style="padding:16px">
+      <div class="clock" id="clockTx">step 0 / 4</div>
+      <div class="hint">Every key gets a soft weight — even the "wrong" one.</div>
+      <svg id="tx" viewBox="0 0 900 560" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <linearGradient id="tokA" x1="0" x2="1"><stop offset="0%" stop-color="#4cc9ff55"/><stop offset="100%" stop-color="#4cc9ffaa"/></linearGradient>
+          <linearGradient id="tokB" x1="0" x2="1"><stop offset="0%" stop-color="#ff6ad555"/><stop offset="100%" stop-color="#ff6ad5aa"/></linearGradient>
+          <linearGradient id="tokC" x1="0" x2="1"><stop offset="0%" stop-color="#7cf2b355"/><stop offset="100%" stop-color="#7cf2b3aa"/></linearGradient>
+        </defs>
+
+        <!-- Q token -->
+        <g id="qToken">
+          <rect x="40" y="60" width="170" height="60" rx="10" fill="#0b1226" stroke="#4cc9ff" class="glow-a"/>
+          <text class="label strong" x="125" y="85" text-anchor="middle">Query Q</text>
+          <text class="label" id="qVec" x="125" y="105" text-anchor="middle">[0.9, 0.1]</text>
+        </g>
+
+        <!-- Keys -->
+        <g id="keys">
+          <text class="label" x="400" y="50">Keys K (all tokens)</text>
+          <g id="kA"><rect x="300" y="60" width="150" height="50" rx="10" fill="url(#tokA)" stroke="#4cc9ff"/><text class="label strong" x="375" y="82" text-anchor="middle">K_A</text><text class="label" id="kAVec" x="375" y="99" text-anchor="middle">[1.0, 0.0]</text></g>
+          <g id="kB"><rect x="470" y="60" width="150" height="50" rx="10" fill="url(#tokB)" stroke="#ff6ad5"/><text class="label strong" x="545" y="82" text-anchor="middle">K_B</text><text class="label" id="kBVec" x="545" y="99" text-anchor="middle">[0.0, 1.0]</text></g>
+          <g id="kC"><rect x="640" y="60" width="150" height="50" rx="10" fill="url(#tokC)" stroke="#7cf2b3"/><text class="label strong" x="715" y="82" text-anchor="middle">K_C</text><text class="label" id="kCVec" x="715" y="99" text-anchor="middle">[0.7, 0.3]</text></g>
+        </g>
+
+        <!-- Scores Q·K -->
+        <g transform="translate(60,160)">
+          <text class="label" x="0" y="0">Step 1 · scores = Q · Kᵀ</text>
+          <g id="scoreRow" transform="translate(0,12)">
+            <g class="score" data-i="0" transform="translate(0,0)">
+              <text class="label" x="0" y="16">A</text>
+              <rect x="30" y="4" width="260" height="14" rx="6" fill="#0b1226" stroke="#334773"/>
+              <rect id="scoreA" x="31" y="5" width="0" height="12" rx="5" fill="#4cc9ff"/>
+              <text class="label" id="scoreATxt" x="310" y="16">0.00</text>
+            </g>
+            <g class="score" data-i="1" transform="translate(0,26)">
+              <text class="label" x="0" y="16">B</text>
+              <rect x="30" y="4" width="260" height="14" rx="6" fill="#0b1226" stroke="#334773"/>
+              <rect id="scoreB" x="31" y="5" width="0" height="12" rx="5" fill="#ff6ad5"/>
+              <text class="label" id="scoreBTxt" x="310" y="16">0.00</text>
+            </g>
+            <g class="score" data-i="2" transform="translate(0,52)">
+              <text class="label" x="0" y="16">C</text>
+              <rect x="30" y="4" width="260" height="14" rx="6" fill="#0b1226" stroke="#334773"/>
+              <rect id="scoreC" x="31" y="5" width="0" height="12" rx="5" fill="#7cf2b3"/>
+              <text class="label" id="scoreCTxt" x="310" y="16">0.00</text>
+            </g>
+          </g>
+        </g>
+
+        <!-- Softmax weights -->
+        <g transform="translate(60,280)">
+          <text class="label" x="0" y="0">Step 2 · attention = softmax(scores / √d)</text>
+          <g id="attnRow" transform="translate(0,12)">
+            <g transform="translate(0,0)">
+              <text class="label" x="0" y="16">A</text>
+              <rect x="30" y="4" width="260" height="14" rx="6" fill="#0b1226" stroke="#334773"/>
+              <rect id="attnA" x="31" y="5" width="0" height="12" rx="5" fill="#4cc9ff"/>
+              <text class="label" id="attnATxt" x="310" y="16">0.00</text>
+            </g>
+            <g transform="translate(0,26)">
+              <text class="label" x="0" y="16">B</text>
+              <rect x="30" y="4" width="260" height="14" rx="6" fill="#0b1226" stroke="#334773"/>
+              <rect id="attnB" x="31" y="5" width="0" height="12" rx="5" fill="#ff6ad5"/>
+              <text class="label" id="attnBTxt" x="310" y="16">0.00</text>
+            </g>
+            <g transform="translate(0,52)">
+              <text class="label" x="0" y="16">C</text>
+              <rect x="30" y="4" width="260" height="14" rx="6" fill="#0b1226" stroke="#334773"/>
+              <rect id="attnC" x="31" y="5" width="0" height="12" rx="5" fill="#7cf2b3"/>
+              <text class="label" id="attnCTxt" x="310" y="16">0.00</text>
+            </g>
+          </g>
+        </g>
+
+        <!-- Values V and output -->
+        <g transform="translate(460,160)">
+          <text class="label" x="0" y="0">Values V</text>
+          <g id="vA"><rect x="0" y="10" width="120" height="40" rx="8" fill="url(#tokA)" stroke="#4cc9ff"/><text class="label strong" x="60" y="30" text-anchor="middle">V_A</text><text class="label" id="vAVec" x="60" y="45" text-anchor="middle">[1.0, 0.2]</text></g>
+          <g id="vB"><rect x="130" y="10" width="120" height="40" rx="8" fill="url(#tokB)" stroke="#ff6ad5"/><text class="label strong" x="190" y="30" text-anchor="middle">V_B</text><text class="label" id="vBVec" x="190" y="45" text-anchor="middle">[0.2, 1.0]</text></g>
+          <g id="vC"><rect x="260" y="10" width="120" height="40" rx="8" fill="url(#tokC)" stroke="#7cf2b3"/><text class="label strong" x="320" y="30" text-anchor="middle">V_C</text><text class="label" id="vCVec" x="320" y="45" text-anchor="middle">[0.6, 0.6]</text></g>
+        </g>
+
+        <!-- output -->
+        <g transform="translate(460,420)">
+          <text class="label" x="0" y="0">Step 3 · output = Σ attn_i · V_i</text>
+          <rect x="0" y="10" width="380" height="60" rx="10" fill="#0b1226" stroke="#a78bfa"/>
+          <text class="label strong" x="190" y="35" text-anchor="middle">output</text>
+          <text class="label" id="txOut" x="190" y="55" text-anchor="middle">[0.00, 0.00]</text>
+        </g>
+
+        <!-- arrows -->
+        <path d="M 210 90 C 260 90 260 90 300 85" class="axon"/>
+        <path d="M 210 90 C 260 90 260 90 470 85" class="axonGhost"/>
+        <path d="M 210 90 C 260 90 260 90 640 85" class="axonGhost"/>
+
+        <!-- flow particles -->
+        <circle id="txP1" r="7" fill="url(#spikeOut)" opacity="0"/>
+      </svg>
+    </div>
+    <div class="legend">
+      <div class="k"><span class="sw" style="color:var(--accentA);background:var(--accentA)"></span>Token A</div>
+      <div class="k"><span class="sw" style="color:var(--accentB);background:var(--accentB)"></span>Token B</div>
+      <div class="k"><span class="sw" style="color:var(--accentV);background:var(--accentV)"></span>Token C (distractor)</div>
+    </div>
+    <div class="grid2">
+      <div class="stat"><b>Top attention</b><span id="statTop">—</span></div>
+      <div class="stat"><b>Entropy of attention</b><span id="statEnt">—</span></div>
+      <div class="stat"><b>Did "wrong" token get weight?</b><span id="statWrong">—</span></div>
+      <div class="stat"><b>Output vector</b><span id="statOutVec">—</span></div>
+    </div>
+  </div>
+</section>
+
+<details open>
+  <summary><b>What you are seeing — and why the two panels diverge</b></summary>
+  <table>
+    <thead><tr><th>Dimension</th><th>Integrator neuron (left)</th><th>Transformer attention (right)</th></tr></thead>
+    <tbody>
+      <tr><td>Q · K matching</td><td><b>Delayed coincidence</b>: spikes only match if<br/>their arrival times line up at a dendrite.</td><td><b>Dot product</b>: similarity between Q and each K, all at once.</td></tr>
+      <tr><td>Gating</td><td><b>Hard threshold</b> → 0 / 1 vote.<br/>"Wrong" sequences produce <i>no</i> contribution.</td><td><b>Softmax</b> → every key gets some weight.<br/>Even distractors leak in.</td></tr>
+      <tr><td>Time</td><td>Intrinsic: <b>leaky integrate-and-fire</b> soma with refractory period.</td><td>None: output is one matmul; sequence order is added externally.</td></tr>
+      <tr><td>V pathway</td><td>Proximal weighted sum added to soma (or V′ spikes from hippocampal index).</td><td>Value vectors blended by attention weights.</td></tr>
+      <tr><td>Sparsity</td><td>Sparse by construction — only coincident branches fire.</td><td>Dense O(N²) by default.</td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top:10px;color:var(--dim)">Try the <kbd>Q: B → A</kbd> option: attention still produces an output (just a different blend), but the biological neuron stays silent because the delays never align. That is the whole point of the paper the repo is based on.</p>
+</details>
+
+<div class="footer">
+  Built from <code>integrator_neuron.py</code> / <code>integrator_neuron_vprime.py</code>. Open this file directly in a browser — no build step, no dependencies.
+</div>
+
+<script>
+// =====================================================================
+// Helpers
+// =====================================================================
+const $ = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => [...r.querySelectorAll(s)];
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const lerp = (a,b,t) => a + (b-a)*t;
+
+// Points along SVG paths for spike animation
+function pointAt(pathEl, t){
+  const len = pathEl.getTotalLength();
+  const p = pathEl.getPointAtLength(clamp(t,0,1) * len);
+  return {x:p.x, y:p.y};
+}
+
+// =====================================================================
+// BIO neuron simulation
+// =====================================================================
+const bio = {
+  // topology / params
+  deltaA: 5,          // delay for feature A (time steps shown symbolically)
+  deltaB: 0,          // delay for feature B
+  threshold: 1.5,     // dendritic coincidence threshold
+  alpha: 2.0,         // weight of dendritic vote contribution to soma
+  vWeight: 0.30,      // proximal V weight (weak by itself)
+  vValue: 0.5,        // proximal V input magnitude
+  Vth: 1.0,           // spike threshold at soma
+  Vrest: 0.0,
+  tau: 5.0,           // membrane time constant (time steps)
+  refractory: 2,
+
+  // simulation state (in "time steps")
+  T: 30,
+  t: 0,
+  membrane: 0,
+  refr: 0,
+  spikeCount: 0,
+  voteHistory: [],
+
+  // event plan (which feature fires at which time step)
+  events: [],         // [{f:'A'|'B', t:number, emittedVisual:false, arrivedAtBranch:false}]
+  outSpikes: [],
+
+  // animation tracks (visual tween progress 0..1 from soma cell body to dendrite)
+  axonA: null, axonB: null, outAxon: null, Vaxon: null,
+  spA: null, spB: null, spV: null, spOut: null,
+
+  // timing window to count coincidence (±1 step)
+  window: 1,
+  lastVoteT: -999,
+};
+
+// Paths (cached)
+function initBioPaths(){
+  bio.axonA = $('#bio path.axon'); // first path = A axon
+  // Safer: query by id would be nicer; we'll recapture by index
+  const paths = $$('#bio path.axon');
+  bio.axonA = paths[0];
+  bio.axonB = paths[1];
+  bio.outAxon = $('#outAxon');
+  bio.Vaxon  = paths[3]; // 0:A axon 1:B axon 2:vote-line(branch) 3:V axon? order depends
+  // Correct by selecting class on exact elements:
+  bio.axonA = $$('#bio .axon')[0];
+  bio.axonB = $$('#bio .axon')[1];
+  bio.outAxon = $('#outAxon');
+  bio.Vaxon = $$('#bio .axon')[3];
+  bio.spA = $('#spA'); bio.spB = $('#spB'); bio.spV = $('#spV'); bio.spOut = $('#spOut');
+}
+
+function setSeq(name){
+  bio.events = [];
+  if (name === 'AB'){       // A at t=5 (will arrive at branch at t=5+ΔA=10), B at t=10 (arrive at 10+ΔB=10) -> coincide
+    bio.events.push({f:'A', t:5});
+    bio.events.push({f:'B', t:10});
+    bio.deltaA = 5; bio.deltaB = 0;
+  } else if (name === 'BA'){
+    bio.events.push({f:'B', t:5});
+    bio.events.push({f:'A', t:10});
+    bio.deltaA = 5; bio.deltaB = 0;
+  } else if (name === 'AA'){
+    bio.events.push({f:'A', t:5});
+    bio.deltaA = 5; bio.deltaB = 0;
+  } else if (name === 'AB2'){
+    bio.events.push({f:'A', t:5});
+    bio.events.push({f:'B', t:18});  // too late
+    bio.deltaA = 5; bio.deltaB = 0;
+  }
+  bio.events.forEach(e => { e.emitted=false; e.arrivedTravelStart=null; });
+  $('#delayAVal').textContent = bio.deltaA;
+  $('#delayBVal').textContent = bio.deltaB;
+}
+
+function resetBio(){
+  bio.t = 0;
+  bio.membrane = 0;
+  bio.refr = 0;
+  bio.spikeCount = 0;
+  bio.outSpikes.length = 0;
+  bio.voteHistory.length = 0;
+  bio.lastVoteT = -999;
+  setSeq($('#seq').value);
+  $('#spA').setAttribute('opacity',0);
+  $('#spB').setAttribute('opacity',0);
+  $('#spV').setAttribute('opacity',0);
+  $('#spOut').setAttribute('opacity',0);
+  $('#outBadge').setAttribute('opacity',0);
+  $('#voteBadge').setAttribute('opacity',0);
+  $('#branchCircle').setAttribute('stroke','#334773');
+  $('#branchCircle').setAttribute('stroke-width','2');
+  updateBioReadout();
+}
+
+function dendriticSumAt(tGlobal){
+  // compute delayed-coincidence weighted sum around tGlobal
+  // delay maps: spike emitted at te from A arrives at branch at te + deltaA
+  // weight per coincident feature = 1.0 (as in configure_for_sequence)
+  let sum = 0;
+  for (const e of bio.events){
+    const arrive = e.t + (e.f==='A' ? bio.deltaA : bio.deltaB);
+    if (Math.abs(arrive - tGlobal) <= bio.window){
+      sum += 1.0;
+    }
+  }
+  return sum;
+}
+
+function stepBio(){
+  if (bio.t > bio.T) return false;
+  const t = bio.t;
+
+  // decrement refractory
+  const inRefr = bio.refr > 0 ? 1 : 0;
+  bio.refr = Math.max(0, bio.refr - 1);
+
+  // dendritic sum this step (discrete)
+  const sum = dendriticSumAt(t);
+  const vote = sum >= bio.threshold ? 1 : 0;
+  bio.voteHistory.push(vote);
+
+  if (vote){
+    // visual vote badge near dendrite
+    const badge = $('#voteBadge');
+    badge.setAttribute('opacity', 1);
+    setTimeout(()=>badge.setAttribute('opacity', 0), 700);
+    $('#branchCircle').setAttribute('stroke', 'var(--vote)');
+    $('#branchCircle').setAttribute('stroke-width', '4');
+    setTimeout(()=>{$('#branchCircle').setAttribute('stroke','#334773');$('#branchCircle').setAttribute('stroke-width','2');}, 650);
+    bio.lastVoteT = t;
+  }
+
+  // V proximal contribution — fires periodic V bursts every 6 steps for visibility
+  const vActive = (t % 6 === 0) ? 1 : 0;
+  if (vActive){
+    animateVSpike();
+  }
+  const vContrib = bio.vWeight * bio.vValue * (vActive ? 1 : 0.25); // small baseline drive
+  const excitation = vContrib + bio.alpha * vote;
+
+  // leaky integrate
+  const decay = Math.exp(-1.0 / bio.tau);
+  bio.membrane = bio.membrane * decay + excitation * (1 - inRefr);
+
+  // spike?
+  let spike = 0;
+  if (bio.membrane >= bio.Vth && bio.refr === 0){
+    spike = 1;
+    bio.membrane = bio.Vrest;
+    bio.refr = bio.refractory;
+    bio.spikeCount++;
+    bio.outSpikes.push(t);
+    animateOutSpike();
+  }
+
+  updateBioReadout();
+  bio.t++;
+  return bio.t <= bio.T;
+}
+
+function animateVSpike(){
+  const sp = bio.spV;
+  sp.setAttribute('opacity', 1);
+  const dur = 600 / playState.speed;
+  const start = performance.now();
+  const path = bio.Vaxon;
+  function tick(now){
+    const k = clamp((now-start)/dur,0,1);
+    const p = pointAt(path, k); // V box (path start) → soma (path end)
+    sp.setAttribute('cx', p.x); sp.setAttribute('cy', p.y);
+    if (k<1) requestAnimationFrame(tick); else sp.setAttribute('opacity', 0);
+  }
+  requestAnimationFrame(tick);
+}
+
+function animateFeatureSpike(which){
+  const sp = which==='A' ? bio.spA : bio.spB;
+  const path = which==='A' ? bio.axonA : bio.axonB;
+  sp.setAttribute('opacity', 1);
+  const delaySteps = which==='A' ? bio.deltaA : bio.deltaB;
+  // total visual travel duration reflects delay magnitude
+  const dur = (500 + delaySteps * 60) / playState.speed;
+  const start = performance.now();
+  function tick(now){
+    const k = clamp((now-start)/dur,0,1);
+    const p = pointAt(path, k);
+    sp.setAttribute('cx', p.x); sp.setAttribute('cy', p.y);
+    if (k<1) requestAnimationFrame(tick); else sp.setAttribute('opacity', 0);
+  }
+  requestAnimationFrame(tick);
+}
+
+function animateOutSpike(){
+  const sp = bio.spOut;
+  sp.setAttribute('opacity', 1);
+  const dur = 600 / playState.speed;
+  const start = performance.now();
+  const path = bio.outAxon;
+  const badge = $('#outBadge');
+  badge.setAttribute('opacity', 1);
+  setTimeout(()=>badge.setAttribute('opacity',0), 700);
+  function tick(now){
+    const k = clamp((now-start)/dur,0,1);
+    const p = pointAt(path, k);
+    sp.setAttribute('cx', p.x); sp.setAttribute('cy', p.y);
+    if (k<1) requestAnimationFrame(tick); else sp.setAttribute('opacity', 0);
+  }
+  requestAnimationFrame(tick);
+}
+
+function updateBioReadout(){
+  const sum = dendriticSumAt(bio.t);
+  $('#statSum').textContent = sum.toFixed(2) + ' / ' + bio.threshold.toFixed(2);
+  $('#mSum').style.width = clamp(sum / (bio.threshold*1.2), 0, 1)*100 + '%';
+  // dendritic visual meter (SVG)
+  const maxH = 80;
+  const h = clamp(sum / (bio.threshold*1.2), 0, 1) * maxH;
+  const sumBar = $('#dendSum');
+  sumBar.setAttribute('y', 89 - h);
+  sumBar.setAttribute('height', h);
+
+  $('#statMem').textContent = bio.membrane.toFixed(3);
+  $('#mMem').style.width = clamp(bio.membrane / (bio.Vth*1.2), 0, 1) * 100 + '%';
+  const memBarH = clamp(bio.membrane / (bio.Vth*1.2), 0, 1) * 110;
+  $('#membraneBar').setAttribute('y', 370 - memBarH);
+  $('#membraneBar').setAttribute('height', memBarH);
+
+  const voted = bio.voteHistory[bio.voteHistory.length-1] === 1;
+  $('#statVote').innerHTML = voted ? '<span class="tag ok">1</span>' : '<span class="tag no">0</span>';
+  $('#statSpikes').textContent = bio.spikeCount + (bio.outSpikes.length ? '  @ ' + bio.outSpikes.join(', ') : '');
+  $('#clockBio').textContent = 't = ' + bio.t;
+}
+
+// Trigger feature-spike visuals at the right wall clock moment
+function scheduleEmitsForStep(t){
+  for (const e of bio.events){
+    if (!e.emitted && e.t === t){
+      e.emitted = true;
+      animateFeatureSpike(e.f);
+    }
+  }
+}
+
+// =====================================================================
+// Transformer simulation (discrete, animated across stages)
+// =====================================================================
+const tx = {
+  // vectors
+  Q:   [0.9, 0.1],
+  K: { A:[1.0, 0.0], B:[0.0, 1.0], C:[0.7, 0.3] },
+  V: { A:[1.0, 0.2], B:[0.2, 1.0], C:[0.6, 0.6] },
+  d: 2,
+  stage: 0, // 0 scores, 1 softmax, 2 blend V, 3 output, 4 done
+  scores: {A:0,B:0,C:0},
+  attn:   {A:0,B:0,C:0},
+  out:    [0,0],
+};
+
+function dot(a,b){ let s=0; for(let i=0;i<a.length;i++) s+=a[i]*b[i]; return s; }
+function softmax(obj){
+  const keys = Object.keys(obj);
+  const vals = keys.map(k=>obj[k]);
+  const m = Math.max(...vals);
+  const exps = vals.map(v=>Math.exp(v - m));
+  const sum = exps.reduce((a,b)=>a+b,0);
+  const out = {}; keys.forEach((k,i)=> out[k] = exps[i]/sum);
+  return out;
+}
+
+function setQFromSeq(name){
+  if (name === 'AB'){       tx.Q = [0.9, 0.3]; } // favors A-ish with hint of B
+  else if (name === 'BA'){  tx.Q = [0.3, 0.9]; } // favors B
+  else if (name === 'AA'){  tx.Q = [1.0, 0.0]; }
+  else if (name === 'AB2'){ tx.Q = [0.6, 0.6]; }
+  $('#qVec').textContent = '[' + tx.Q.map(v=>v.toFixed(1)).join(', ') + ']';
+}
+
+function resetTx(){
+  tx.stage = 0;
+  tx.scores = {A:0,B:0,C:0};
+  tx.attn = {A:0,B:0,C:0};
+  tx.out = [0,0];
+  setQFromSeq($('#seq').value);
+  ['scoreA','scoreB','scoreC','attnA','attnB','attnC'].forEach(id=>{
+    $('#'+id).setAttribute('width', 0);
+  });
+  $('#scoreATxt').textContent = '0.00'; $('#scoreBTxt').textContent = '0.00'; $('#scoreCTxt').textContent = '0.00';
+  $('#attnATxt').textContent = '0.00'; $('#attnBTxt').textContent = '0.00'; $('#attnCTxt').textContent = '0.00';
+  $('#txOut').textContent = '[0.00, 0.00]';
+  $('#clockTx').textContent = 'step 0 / 4';
+  $('#statTop').textContent = '—';
+  $('#statEnt').textContent = '—';
+  $('#statWrong').textContent = '—';
+  $('#statOutVec').textContent = '—';
+  // unhighlight
+  ['kA','kB','kC','vA','vB','vC'].forEach(id=>{
+    const g = $('#'+id).querySelector('rect');
+    if(g) g.style.filter = '';
+  });
+}
+
+function stepTx(){
+  tx.stage++;
+  $('#clockTx').textContent = 'step ' + tx.stage + ' / 4';
+  if (tx.stage === 1){
+    // compute scores Q·K / sqrt(d)
+    const s = {
+      A: dot(tx.Q, tx.K.A) / Math.sqrt(tx.d),
+      B: dot(tx.Q, tx.K.B) / Math.sqrt(tx.d),
+      C: dot(tx.Q, tx.K.C) / Math.sqrt(tx.d),
+    };
+    tx.scores = s;
+    const maxS = Math.max(...Object.values(s), 0.001);
+    ['A','B','C'].forEach(k=>{
+      const w = clamp(s[k]/maxS, 0, 1) * 258;
+      animateWidth('#score'+k, w);
+      $('#score'+k+'Txt').textContent = s[k].toFixed(2);
+    });
+  } else if (tx.stage === 2){
+    tx.attn = softmax(tx.scores);
+    ['A','B','C'].forEach(k=>{
+      const w = clamp(tx.attn[k], 0, 1) * 258;
+      animateWidth('#attn'+k, w);
+      $('#attn'+k+'Txt').textContent = tx.attn[k].toFixed(2);
+    });
+    const top = Object.entries(tx.attn).sort((a,b)=>b[1]-a[1])[0];
+    $('#statTop').textContent = top[0] + '  (' + top[1].toFixed(2) + ')';
+    const ent = -Object.values(tx.attn).reduce((s,p)=> s + (p>0? p*Math.log(p):0), 0);
+    $('#statEnt').textContent = ent.toFixed(3) + '  nats';
+    const seq = $('#seq').value;
+    const wrongKey = seq==='BA' ? 'A' : 'B'; // whichever isn't the "target"
+    $('#statWrong').innerHTML = tx.attn[wrongKey] > 0.05
+      ? `<span class="tag no">yes — ${wrongKey} got ${tx.attn[wrongKey].toFixed(2)}</span>`
+      : `<span class="tag ok">barely</span>`;
+  } else if (tx.stage === 3){
+    // output = sum attn_i * V_i
+    const out = [0,0];
+    ['A','B','C'].forEach(k=>{
+      out[0] += tx.attn[k] * tx.V[k][0];
+      out[1] += tx.attn[k] * tx.V[k][1];
+    });
+    tx.out = out;
+    $('#txOut').textContent = '[' + out.map(v=>v.toFixed(2)).join(', ') + ']';
+    $('#statOutVec').textContent = '[' + out.map(v=>v.toFixed(2)).join(', ') + ']';
+    // highlight contributing V boxes
+    ['A','B','C'].forEach(k=>{
+      const rect = $('#v'+k).querySelector('rect');
+      rect.style.filter = `drop-shadow(0 0 ${8*tx.attn[k]}px #fff)`;
+    });
+  } else if (tx.stage >= 4){
+    // cycle done — optionally loop or stop
+  }
+}
+
+function animateWidth(sel, targetW){
+  const el = $(sel);
+  const start = +el.getAttribute('width') || 0;
+  const t0 = performance.now();
+  const dur = 500 / playState.speed;
+  function tick(now){
+    const k = clamp((now-t0)/dur, 0, 1);
+    const w = lerp(start, targetW, k);
+    el.setAttribute('width', w);
+    if (k < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+// =====================================================================
+// Play loop
+// =====================================================================
+const playState = {
+  running: false,
+  speed: 1,
+  loop: true,
+  stepMs: 180,
+  lastStep: 0,
+  txCadenceMs: 900,
+  lastTx: 0,
+};
+
+function tickAll(now){
+  if (!playState.running) return;
+  // bio advances one time step every stepMs/speed
+  if (now - playState.lastStep >= playState.stepMs / playState.speed){
+    playState.lastStep = now;
+    scheduleEmitsForStep(bio.t);
+    const more = stepBio();
+    if (!more){
+      if (playState.loop){
+        setTimeout(()=>{ resetBio(); }, 700);
+      } else {
+        playState.running = false;
+        $('#play').textContent = '▶ Play';
+      }
+    }
+  }
+  // transformer advances one stage every txCadenceMs
+  if (now - playState.lastTx >= playState.txCadenceMs / playState.speed){
+    playState.lastTx = now;
+    if (tx.stage < 4) stepTx();
+    else if (playState.loop){
+      setTimeout(()=> resetTx(), 300);
+    }
+  }
+  requestAnimationFrame(tickAll);
+}
+
+// =====================================================================
+// Boot
+// =====================================================================
+function boot(){
+  initBioPaths();
+  resetBio();
+  resetTx();
+
+  $('#play').addEventListener('click', ()=>{
+    playState.running = !playState.running;
+    $('#play').textContent = playState.running ? '⏸ Pause' : '▶ Play';
+    if (playState.running){
+      playState.lastStep = performance.now() - 9999; // step immediately
+      playState.lastTx   = performance.now() - 9999;
+      requestAnimationFrame(tickAll);
+    }
+  });
+  $('#step').addEventListener('click', ()=>{
+    scheduleEmitsForStep(bio.t);
+    stepBio();
+    if (tx.stage < 4) stepTx();
+  });
+  $('#reset').addEventListener('click', ()=>{ resetBio(); resetTx(); });
+  $('#loop').addEventListener('click', (e)=>{
+    playState.loop = !playState.loop;
+    e.currentTarget.setAttribute('aria-pressed', playState.loop ? 'true':'false');
+  });
+  $('#seq').addEventListener('change', ()=>{ resetBio(); resetTx(); });
+  $('#speed').addEventListener('input', (e)=>{ playState.speed = +e.target.value; });
+}
+boot();
+</script>
+</body>
+</html>
