@@ -1,2 +1,2 @@
 # bicheng2028.github.io
-personal homepage
+cross-attenttion vs. integrator neuron
